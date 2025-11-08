@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>생산현황(2025)</title>
+<style>
+  :root{--ink:#1f2937;--muted:#6b7280;--bd:#e5e7eb;--surf:#fff;--surf2:#fafafa;--p50:#fff7ed;--p100:#ffedd5;--p200:#fed7aa;--p300:#fdba74;--p400:#fb923c;--p500:#f97316}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,'Noto Sans KR',sans-serif;color:var(--ink);background:var(--surf2)}
+  .top{position:sticky;top:0;z-index:10;padding:10px 16px;background:linear-gradient(90deg,var(--p100),var(--p200));box-shadow:0 2px 8px rgba(0,0,0,.06)}
+  .top h1{margin:0;font-size:18px}
+  .grid{max-width:1080px;margin:16px auto;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:0 16px}
+  @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .pill{aspect-ratio:1/1;border-radius:50%;border:1px solid var(--p100);background:radial-gradient(120% 120% at 65% 10%,var(--p50),var(--p200));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.08)}
+  .pill .t{font-weight:800}
+  .pill .n{font-size:38px;font-weight:900;letter-spacing:-.5px}
+  main{max-width:1080px;margin:4px auto 24px;padding:0 16px}
+  .page{display:none}.page.on{display:block}
+  .card{background:var(--surf);border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+  .card h2{margin:12px 14px 8px}
+  .table{overflow:auto;border-top:1px solid var(--bd)}
+  table{width:100%;border-collapse:collapse}
+  thead th{background:#fafafc;border-bottom:1px solid var(--bd);text-align:left;padding:8px}
+  tbody td{border-bottom:1px solid #f2f4f7;padding:8px}
+  .tabs{display:flex;gap:6px;margin:10px 0}
+  .tab{border:1px solid var(--p100);background:var(--p50);border-radius:10px;padding:6px 10px;cursor:pointer}
+  .tab.active{background:var(--p200);border-color:var(--p300);font-weight:700}
+  canvas.chart{width:100%;height:280px;display:block;margin:10px 0;background:#fff;border:1px solid var(--bd);border-radius:12px}
+  .help{font-size:12px;color:var(--muted);margin:4px 2px}
+</style>
+</head>
+<body>
+<header class="top"><h1>생산현황 (2025년)</h1></header>
+
+<section class="grid" aria-label="핵심 지표">
+  <button class="pill" data-target="goal"><div class="t">2025년 생산 목표량(연말 예측)</div><div id="badge-goal" class="n">—</div></button>
+  <button class="pill" data-target="current"><div class="t">2025년 누적 생산량(양품, 1~10월)</div><div id="badge-current" class="n">—</div></button>
+  <button class="pill" data-target="defect"><div class="t">2025년 평균 불량률(현재까지)</div><div id="badge-defect" class="n">—</div></button>
+</section>
+
+<main>
+  <!-- 목표 & 예측 -->
+  <section id="goal" class="page on card">
+    <h2>2025년 생산 목표량(연말 누적 예측)</h2>
+    <div style="padding:0 14px 8px">
+      <div id="goal-big" style="font-size:46px;font-weight:900;color:#7a3a00;letter-spacing:-1px">—</div>
+      <div class="help">* 1~10월 월합계를 기반으로 선형회귀로 11·12월을 예측 후 1~12월 합산</div>
+    </div>
+    <div class="table">
+      <table>
+        <thead><tr><th>월</th><th>월별 생산량(합)</th></tr></thead>
+        <tbody id="monthly-all"></tbody>
+      </table>
+    </div>
+    <canvas id="goal-month-chart" class="chart"></canvas>
+    <p class="help">※ 월별 생산량(라인) — 왼쪽 Y축 눈금 추가</p>
+  </section>
+
+  <!-- 누적 생산량 (제품별 → 월 → 일 드릴다운) -->
+  <section id="current" class="page card">
+    <h2>2025년 누적 생산량</h2>
+    <div class="tabs">
+      <button class="tab active" data-tab="et">이올스왑</button>
+      <button class="tab" data-tab="ipa">알콜스왑</button>
+    </div>
+
+    <!-- ET -->
+    <div id="tab-et" class="tabpage">
+      <div class="table">
+        <table>
+          <thead><tr><th>월</th><th>생산량(합)</th><th>양품(합)</th><th>불량(합)</th><th>불량률(%)</th></tr></thead>
+          <tbody id="et-month-body"></tbody>
+        </table>
+      </div>
+      <canvas id="et-month-chart" class="chart" title="막대를 클릭하면 해당 월의 일별 상세가 열립니다."></canvas>
+      <h3 id="et-d-title" style="display:none;margin:6px 0 0 0">일별 상세</h3>
+      <div id="et-d-wrap" class="table" style="display:none">
+        <table>
+          <thead><tr><th>날짜</th><th>생산</th><th>양품</th><th>불량</th><th>불량률(%)</th></tr></thead>
+          <tbody id="et-d-body"></tbody>
+        </table>
+      </div>
+      <canvas id="et-d-chart" class="chart" style="display:none"></canvas>
+    </div>
+
+    <!-- IPA -->
+    <div id="tab-ipa" class="tabpage" style="display:none">
+      <div class="table">
+        <table>
+          <thead><tr><th>월</th><th>생산량(합)</th><th>양품(합)</th><th>불량(합)</th><th>불량률(%)</th></tr></thead>
+          <tbody id="ipa-month-body"></tbody>
+        </table>
+      </div>
+      <canvas id="ipa-month-chart" class="chart" title="막대를 클릭하면 해당 월의 일별 상세가 열립니다."></canvas>
+      <h3 id="ipa-d-title" style="display:none;margin:6px 0 0 0">일별 상세</h3>
+      <div id="ipa-d-wrap" class="table" style="display:none">
+        <table>
+          <thead><tr><th>날짜</th><th>생산</th><th>양품</th><th>불량</th><th>불량률(%)</th></tr></thead>
+          <tbody id="ipa-d-body"></tbody>
+        </table>
+      </div>
+      <canvas id="ipa-d-chart" class="chart" style="display:none"></canvas>
+    </div>
+  </section>
+
+  <!-- 불량률 -->
+  <section id="defect" class="page card">
+    <h2>2025년 평균 불량률</h2>
+    <div style="padding:0 14px 8px">
+      <div id="defect-big" style="font-size:40px;font-weight:900;color:#7a3a00">—</div>
+      <div class="help">* 총불량 ÷ 총생산 × 100 (모든 데이터 기준)</div>
+    </div>
+    <div class="table">
+      <table>
+        <thead><tr><th>월</th><th>총 생산</th><th>총 불량</th><th>불량률(%)</th></tr></thead>
+        <tbody id="defect-month-body"></tbody>
+      </table>
+    </div>
+    <canvas id="defect-month-chart" class="chart"></canvas>
+  </section>
+</main>
+
+<!-- CSV (그대로 붙여둠) -->
+<script id="csv-et" type="text/plain">월,일,생산량,양품,불량
+3월,10일,181462,180000,1462
+3월,11일,18200,18000,200
+3월,12일,92912,91900,1012
+3월,13일,133448,130100,3348
+3월,14일,96112,96000,112
+3월,17일,140152,137100,3052
+3월,18일,161898,156900,4998
+3월,19일,236112,234000,2112
+3월,24일,18628,18000,628
+3월,25일,135016,132000,3016
+3월,26일,234272,231100,3172
+3월,27일,121128,116900,4228
+4월,22일,57968,57600,368
+4월,23일,15576,15400,176
+4월,25일,93528,92900,628
+4월,29일,248792,248100,692
+4월,30일,96720,96000,720
+5월,2일,253144,252000,1144
+5월,8일,90360,90000,360
+5월,9일,154032,150000,4032
+5월,29일,99472,98600,872
+5월,30일,245040,241500,3540
+5월,31일,199976,199900,76
+6월,2일,240344,237600,2744
+6월,4일,250568,248400,2168
+6월,5일,252360,250800,1560
+6월,6일,198840,196900,1940
+6월,7일,117056,116300,756
+6월,7일,87102,86400,702
+6월,9일,257152,255400,1752
+6월,10일,247952,246000,1952
+6월,11일,251760,247600,4160
+6월,12일,254072,252700,1372
+6월,13일,250160,249700,460
+6월,16일,250088,246000,4088
+6월,17일,243216,242800,416
+6월,18일,61382,60900,482
+6월,18일,187152,186000,1152
+6월,19일,252184,252000,184
+6월,23일,252160,248800,3360
+6월,24일,251256,249200,2056
+6월,25일,252584,249800,2784
+6월,26일,251096,248200,2896
+6월,27일,175648,173600,2048
+6월,27일,74924,74700,224
+6월,28일,196040,192700,3340
+6월,30일,250328,248600,1728
+7월,1일,247152,246000,1152
+7월,2일,251112,246000,5112
+7월,3일,131800,131200,600
+8월,11일,219726,218400,1326
+8월,12일,251112,249600,1512
+8월,13일,114252,114000,252
+10월,24일,84440,84000,440
+10월,27일,255942,252000,3942
+10월,28일,248908,246000,2908
+10월,29일,254152,252000,2152
+10월,30일,253616,252000,1616
+10월,31일,182904,180000,2904
+</script>
+
+<script id="csv-ipa" type="text/plain">월,일,생산량,양품,불량
+1월,2일,192075,188400,3675
+1월,3일,194202,190800,3402
+1월,4일,153837,150000,3837
+1월,6일,197028,195600,1428
+1월,7일,9480,8400,1080
+1월,9일,171192,168000,3192
+1월,10일,51774,50200,1574
+1월,10일,151106,147500,3606
+1월,11일,155616,140500,15116
+1월,13일,156258,132000,24258
+1월,14일,186546,160100,26446
+1월,15일,204402,193100,11302
+1월,18일,70038,68400,1638
+1월,20일,196398,192000,4398
+1월,21일,189924,183600,6324
+1월,22일,184438,180000,4438
+1월,23일,194434,186000,8434
+1월,24일,188403,180000,8403
+1월,25일,160134,154000,6134
+1월,31일,189786,182000,7786
+2월,1일,99186,96000,3186
+2월,3일,195814,192000,3814
+2월,4일,194478,186000,8478
+2월,5일,87678,84000,3678
+2월,5일,106676,103700,2976
+2월,6일,201768,196300,5468
+2월,7일,182400,176300,6100
+2월,10일,193200,189700,3500
+2월,11일,127656,126000,1656
+2월,12일,180468,174000,6468
+2월,13일,180180,176100,4080
+2월,14일,191172,186300,4872
+2월,15일,154830,151200,3630
+2월,17일,193614,189300,4314
+2월,18일,201066,196100,4966
+2월,19일,193464,188600,4864
+2월,20일,39280,38400,880
+2월,20일,154400,150000,4400
+2월,21일,194154,190000,4154
+2월,22일,160488,158000,2488
+2월,24일,205626,200400,5226
+2월,25일,205908,198000,7908
+2월,25일,197472,192100,5372
+2월,26일,54336,54000,336
+2월,26일,49398,46700,2698
+2월,26일,148082,144000,4082
+3월,4일,193230,186000,7230
+3월,5일,198162,192000,6162
+3월,6일,129828,126000,3828
+3월,6일,55380,54000,1380
+3월,7일,190970,184700,6270
+3월,8일,157644,153300,4344
+3월,10일,190188,184000,6188
+3월,11일,195750,192000,3750
+3월,12일,196596,192000,4596
+3월,13일,197784,195200,2584
+3월,14일,205458,204750,708
+3월,14일,204408,201810,2598
+3월,14일,190302,187100,3202
+3월,15일,169692,168780,912
+3월,15일,167892,167370,522
+3월,15일,159990,157700,2290
+3월,17일,211080,209970,1110
+3월,17일,211272,209580,1692
+3월,17일,85650,84000,1650
+3월,18일,69036,68520,516
+3월,18일,73080,72510,570
+3월,18일,132126,131640,486
+3월,18일,133554,132600,954
+3월,18일,170292,168000,2292
+3월,19일,194016,193290,726
+3월,19일,15180,15000,180
+3월,19일,210024,207600,2424
+3월,19일,200622,198000,2622
+3월,20일,212442,211350,1092
+3월,20일,215154,213870,1284
+3월,20일,170220,168000,2220
+3월,20일,18525,18000,525
+3월,21일,211272,210570,702
+3월,21일,208614,207330,1284
+3월,22일,100332,99780,552
+3월,22일,74124,73680,444
+3월,27일,24492,24000,492
+3월,28일,195300,191000,4300
+3월,29일,114342,109000,5342
+3월,31일,186920,180000,6920
+4월,1일,19668,18000,1668
+4월,1일,150144,142700,7444
+4월,2일,29976,29700,276
+4월,2일,88284,84000,4284
+4월,2일,133716,81200,52516
+4월,3일,171876,149800,22076
+4월,4일,30024,28600,1424
+4월,4일,131522,120000,11522
+4월,7일,165324,142300,23024
+4월,8일,119798,107200,12598
+4월,9일,188394,173300,15094
+4월,10일,191562,183200,8362
+4월,11일,185712,180000,5712
+4월,14일,201732,200500,1232
+4월,14일,190068,181600,8468
+4월,15일,217002,216000,1002
+4월,15일,214896,212300,2596
+4월,15일,120046,117000,3046
+4월,16일,214080,212600,1480
+4월,16일,214878,213700,1178
+4월,16일,197352,195000,2352
+4월,17일,211500,211500,
+4월,17일,207108,205700,1408
+4월,17일,115788,114000,1788
+4월,17일,56796,49300,7496
+4월,17일,27390,24000,3390
+4월,21일,42000,41400,600
+4월,21일,164982,155100,9882
+4월,22일,172950,168000,4950
+4월,23일,16968,16500,468
+4월,23일,48510,47700,810
+4월,24일,127980,123100,4880
+4월,24일,168944,151800,17144
+4월,25일,40794,38900,1894
+4월,25일,62661,48000,14661
+4월,25일,150354,145000,5354
+4월,28일,185522,177600,7922
+4월,29일,100254,95650,4604
+4월,29일,91932,90000,1932
+4월,29일,142212,113600,28612
+4월,30일,191178,186000,5178
+4월,30일,176442,171600,4842
+5월,2일,192342,188000,4342
+5월,2일,189858,186000,3858
+5월,7일,77766,76000,1766
+5월,7일,116016,113700,2316
+5월,7일,190524,183200,7324
+5월,8일,91944,90300,1644
+5월,8일,37246,36000,1246
+5월,8일,66162,64300,1862
+5월,8일,192298,184600,7698
+5월,9일,216504,216000,504
+5월,9일,182352,180000,2352
+5월,9일,191408,184500,6908
+5월,10일,158352,155310,3042
+5월,10일,179280,178590,690
+5월,10일,110412,107100,3312
+5월,12일,217032,215820,1212
+5월,12일,218202,217350,852
+5월,12일,201108,195200,5908
+5월,13일,210738,209730,1008
+5월,13일,216186,215580,606
+5월,13일,190146,183100,7046
+5월,14일,162811,162090,721
+5월,14일,41166,40950,216
+5월,14일,146532,145530,1002
+5월,14일,56382,55980,402
+5월,14일,189012,182900,6112
+5월,15일,184974,180000,4974
+5월,15일,213030,206460,6570
+5월,15일,155016,144900,10116
+5월,16일,140850,139500,1350
+5월,16일,191358,186000,5358
+5월,16일,182634,174000,8634
+5월,17일,166854,164820,2034
+5월,17일,170100,169170,930
+5월,17일,92040,91300,740
+5월,17일,50175,49700,475
+5월,17일,141156,133400,7756
+5월,19일,68352,68160,192
+5월,19일,74832,73920,912
+5월,19일,145992,145290,702
+5월,19일,140016,139230,786
+5월,19일,159030,154300,4730
+5월,20일,200292,196740,3552
+5월,20일,209742,208920,822
+5월,20일,190520,186000,4520
+5월,21일,208572,207870,702
+5월,21일,209364,208650,714
+5월,21일,189312,182400,6912
+5월,22일,190812,190050,762
+5월,22일,203934,203250,684
+5월,22일,21606,21480,126
+5월,22일,9870,9600,270
+5월,22일,196308,191600,4708
+5월,23일,215322,214500,822
+5월,23일,217092,216330,762
+5월,23일,188304,183600,4704
+5월,24일,159072,158190,882
+5월,24일,176442,175860,582
+5월,26일,213708,212550,1158
+5월,26일,217572,216240,1332
+5월,26일,109652,108000,1652
+5월,26일,80700,80000,700
+5월,27일,140340,138630,1710
+5월,27일,138816,136620,2196
+5월,27일,191106,184000,7106
+5월,28일,189741,183600,6141
+5월,28일,128390,107700,20690
+5월,29일,125544,114700,10844
+5월,29일,39948,38000,1948
+5월,29일,183252,176400,6852
+5월,29일,165624,154500,11124
+5월,30일,11142,5170,5972
+5월,30일,128376,123400,4976
+5월,30일,182208,168600,13608
+5월,31일,9354,8600,754
+5월,31일,109776,106200,3576
+5월,31일,24792,24000,792
+5월,31일,168564,164400,4164
+6월,2일,204720,200400,4320
+6월,2일,174168,162000,12168
+6월,4일,7161,7000,161
+6월,4일,184046,180000,4046
+6월,4일,62970,60100,2870
+6월,4일,83550,80300,3250
+6월,5일,193338,182100,11238
+6월,6일,170862,161100,9762
+6월,7일,162918,158500,4418
+6월,9일,199356,189500,9856
+6월,10일,173340,158500,14840
+6월,11일,111510,110300,1210
+6월,11일,206592,198000,8592
+6월,12일,203508,202900,608
+6월,12일,202776,194800,7976
+6월,13일,120372,118800,1572
+6월,13일,133518,129200,4318
+6월,13일,54636,53000,1636
+6월,14일,160782,157000,3782
+6월,16일,156188,150000,6188
+6월,16일,196824,189900,6924
+6월,17일,118038,116600,1438
+6월,17일,191496,183600,7896
+6월,17일,191850,170100,21750
+6월,18일,200700,195400,5300
+6월,18일,195900,190700,5200
+6월,18일,200340,192000,8340
+6월,19일,4947,4900,47
+6월,19일,196856,193000,3856
+6월,19일,103581,100000,3581
+6월,19일,73506,72000,1506
+6월,19일,198540,192000,6540
+6월,23일,204456,199000,5456
+6월,23일,190518,186800,3718
+6월,23일,209556,204000,5556
+6월,24일,143310,139300,4010
+6월,24일,52158,50000,2158
+6월,24일,196206,189100,7106
+6월,24일,39756,38800,956
+6월,24일,145740,142400,3340
+6월,25일,172440,168800,3640
+6월,25일,35406,34900,506
+6월,25일,195852,187200,8652
+6월,25일,209364,205600,3764
+6월,26일,85464,83300,2164
+6월,26일,194352,190100,4252
+6월,26일,181374,178200,3174
+6월,26일,30270,30000,270
+6월,27일,89352,87800,1552
+6월,27일,108450,106300,2150
+6월,27일,210710,207500,3210
+6월,28일,171624,168700,2924
+6월,30일,192882,188900,3982
+7월,1일,68760,67800,960
+7월,2일,23550,22800,750
+7월,3일,190980,187900,3080
+7월,3일,162150,160500,1650
+7월,3일,190860,186000,4860
+7월,4일,220752,219000,1752
+7월,4일,218766,218100,666
+7월,5일,175482,174700,782
+7월,5일,165498,163200,2298
+7월,5일,12570,12000,570
+7월,7일,16614,16100,514
+7월,7일,199914,198800,1114
+7월,7일,218358,217900,458
+7월,8일,218052,217000,1052
+7월,8일,206904,205600,1304
+7월,9일,15750,15200,550
+7월,14일,191346,183600,7746
+7월,15일,60342,56400,3942
+7월,22일,85434,84000,1434
+7월,22일,145614,144000,1614
+7월,23일,161520,160400,1120
+7월,23일,209772,207600,2172
+7월,24일,213630,211600,2030
+7월,24일,211308,210600,708
+7월,25일,210558,209100,1458
+7월,25일,217968,215100,2868
+7월,26일,174552,173600,952
+7월,26일,172194,170700,1494
+7월,28일,110190,109300,890
+7월,28일,51540,51000,540
+8월,8일,56052,55600,452
+8월,8일,66528,66000,528
+8월,9일,169578,168900,678
+8월,9일,171354,170800,554
+8월,11일,201096,198100,2996
+8월,11일,204552,201200,3352
+8월,12일,208752,206700,2052
+8월,12일,211722,210600,1122
+8월,13일,208734,206200,2534
+8월,13일,208056,207200,856
+8월,18일,133830,132800,1030
+8월,18일,119076,116700,2376
+8월,20일,108134,105400,2734
+8월,20일,66414,66000,414
+8월,20일,177822,154000,23822
+8월,21일,200214,194600,5614
+8월,21일,144770,144000,770
+8월,21일,48588,48000,588
+8월,21일,41652,38000,3652
+8월,21일,154848,148300,6548
+8월,22일,203610,199400,4210
+8월,22일,199056,195700,3356
+8월,22일,203634,193700,9934
+8월,23일,166956,163400,3556
+8월,23일,133302,126000,7302
+8월,23일,162162,152500,9662
+8월,23일,156312,150000,6312
+8월,25일,53844,52800,1044
+8월,25일,140364,138000,2364
+8월,25일,26316,19900,6416
+8월,25일,56784,50900,5884
+8월,25일,77534,76400,1134
+8월,25일,120492,117100,3392
+8월,26일,197460,192000,5460
+8월,26일,190362,183200,7162
+8월,27일,197382,195000,2382
+8월,27일,200364,194500,5864
+8월,27일,197964,192800,5164
+8월,28일,212634,209700,2934
+8월,28일,216282,214200,2082
+8월,28일,203022,201000,2022
+8월,28일,35352,34400,952
+8월,28일,159552,156000,3552
+8월,29일,217566,217200,366
+8월,29일,217752,216000,1752
+8월,29일,6717,6600,117
+8월,29일,184986,181200,3786
+8월,29일,200364,195000,5364
+8월,30일,56184,55700,484
+8월,30일,120726,120000,726
+8월,30일,37650,36900,750
+8월,30일,138750,138000,750
+8월,30일,30170,27300,2870
+8월,30일,125130,120000,5130
+9월,1일,219462,217500,1962
+9월,1일,219558,218400,1158
+9월,1일,189620,184000,5620
+9월,2일,219792,218400,1392
+9월,2일,214014,213200,814
+9월,2일,187710,182000,5710
+9월,3일,96972,96200,772
+9월,3일,124926,124600,326
+9월,3일,78588,78100,488
+9월,3일,142236,140600,1636
+9월,3일,201672,195800,5872
+9월,4일,210228,208800,1428
+9월,4일,211602,209200,2402
+9월,4일,129318,123200,6118
+9월,4일,63660,62400,1260
+9월,5일,219096,216800,2296
+9월,5일,209664,207200,2464
+9월,5일,196500,192200,4300
+9월,6일,8274,7800,474
+9월,6일,168432,168000,432
+9월,6일,16164,16000,164
+9월,6일,151752,150000,1752
+9월,6일,163842,160000,3842
+9월,9일,137052,134500,2552
+9월,10일,109548,108000,1548
+9월,10일,98616,97600,1016
+9월,10일,157770,156000,1770
+9월,10일,200952,198000,2952
+9월,11일,219924,217900,2024
+9월,11일,219234,218500,734
+9월,11일,67116,67000,116
+9월,11일,131984,128700,3284
+9월,11일,61926,60900,1026
+9월,12일,138132,136100,2032
+9월,12일,80160,78400,1760
+9월,12일,116250,115900,350
+9월,12일,103122,102500,622
+9월,12일,194802,190100,4702
+9월,13일,176280,175400,880
+9월,13일,176202,174800,1402
+9월,13일,149916,145300,4616
+9월,15일,218232,217100,1132
+9월,15일,186618,183700,2918
+9월,15일,198990,193400,5590
+9월,16일,194184,191700,2484
+9월,16일,189822,188900,922
+9월,16일,118350,115300,3050
+9월,16일,74400,72000,2400
+9월,17일,218652,216800,1852
+9월,17일,19182,19000,182
+9월,17일,197292,192000,5292
+9월,18일,188052,187000,1052
+9월,18일,36294,36000,294
+9월,18일,147636,146000,1636
+9월,18일,40362,40000,362
+9월,19일,219888,219200,688
+9월,19일,13782,13200,582
+9월,19일,201440,197700,3740
+9월,22일,219852,217500,2352
+9월,22일,219474,217400,2074
+9월,22일,196362,186300,10062
+9월,23일,219792,219600,192
+9월,23일,220842,220500,342
+9월,23일,198852,196000,2852
+9월,24일,148962,147700,1262
+9월,24일,69816,69800,16
+9월,24일,149292,148500,792
+9월,24일,66756,66400,356
+9월,24일,121146,118000,3146
+9월,24일,80406,80000,406
+9월,25일,219084,218200,884
+9월,25일,217002,215900,1102
+9월,25일,198950,192400,6550
+9월,26일,215244,213200,2044
+9월,26일,218352,217400,952
+9월,26일,200238,195600,4638
+9월,29일,42438,41800,638
+9월,29일,167676,165600,2076
+9월,29일,42606,41800,806
+9월,29일,168666,166400,2266
+9월,29일,200220,197000,3220
+9월,30일,219816,218400,1416
+9월,30일,220116,217600,2516
+9월,30일,200052,194400,5652
+10월,1일,216174,214300,1874
+10월,1일,218046,216400,1646
+10월,1일,200070,196000,4070
+10월,2일,176352,175700,652
+10월,2일,176952,176200,752
+10월,2일,13774,13600,174
+10월,2일,139458,135600,3858
+10월,13일,91584,90000,1584
+10월,13일,123300,122500,800
+10월,13일,89952,88100,1852
+10월,13일,79656,79100,556
+10월,13일,179832,169700,10132
+10월,14일,205842,204600,1242
+10월,14일,219252,218400,852
+10월,14일,96690,94500,2190
+10월,14일,105900,103600,2300
+10월,15일,198096,193500,4596
+10월,16일,203052,197300,5752
+10월,17일,201996,197200,4796
+10월,20일,180462,158900,21562
+10월,21일,195174,184700,10474
+10월,22일,201102,196000,5102
+10월,23일,23640,23500,140
+10월,23일,147846,133200,14646
+10월,24일,194946,186000,8946
+10월,27일,202932,200000,2932
+10월,28일,199218,194200,5018
+10월,29일,128316,126000,2316
+</script>
+
+<script>
+/* ====== 라우팅/탭 ====== */
+document.querySelectorAll('.pill').forEach(b=>{
+  b.onclick=()=>{
+    const id=b.dataset.target;
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+    document.getElementById(id).classList.add('on');
+    scrollTo({top:0,behavior:'smooth'});
+  };
+});
+const tabs=[...document.querySelectorAll('.tab')];
+tabs.forEach(t=>t.onclick=()=>{
+  tabs.forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  const on=t.dataset.tab;
+  document.getElementById('tab-et').style.display = on==='et'?'block':'none';
+  document.getElementById('tab-ipa').style.display = on==='ipa'?'block':'none';
+});
+
+/* ====== 유틸 ====== */
+const csvToMatrix = (txt)=> String(txt||'').trim().split(/\r?\n/).map(r=>r.split(','));
+const N = v => {const n=Number(String(v).replace(/[^\d.-]/g,''));return isFinite(n)?n:0;}
+const niceMax = (max)=>{ if(max<=0) return 1; const m=10**Math.floor(Math.log10(max)); const n=max/m; const k=n<=1?1:n<=2?2:n<=5?5:10; return k*m; };
+
+/* ====== 차트 (Y축 눈금 포함, 성능 단순 캔버스) ====== */
+function drawAxes(ctx,w,h,pad,values,isPct){
+  ctx.clearRect(0,0,w,h); ctx.fillStyle="#fff"; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle="#e5e7eb"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(pad,pad); ctx.lineTo(pad,h-pad); ctx.lineTo(w-pad,h-pad); ctx.stroke();
+  const vmax = niceMax(Math.max(...values,1)); const T=5;
+  ctx.fillStyle="#6b7280"; ctx.font="11px sans-serif"; ctx.textAlign="right";
+  for(let i=0;i<=T;i++){
+    const v=vmax*i/T; const y=h-pad-(v/vmax)*(h-pad*2);
+    ctx.strokeStyle="#f3f4f6"; ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(w-pad,y); ctx.stroke();
+    ctx.fillText(isPct?`${v.toFixed(0)}%`:Math.round(v).toLocaleString(), pad-8, y+3);
+  }
+  return vmax;
+}
+function lineChart(id, labels, values, {isPct=false}={}){
+  const c=document.getElementById(id); const ctx=c.getContext('2d');
+  const w=c.width=c.clientWidth, h=c.height=c.clientHeight, pad=40;
+  const vmax=drawAxes(ctx,w,h,pad,values,isPct);
+  const step=(w-pad*2)/Math.max(1,values.length-1);
+  ctx.strokeStyle="#f97316"; ctx.lineWidth=2; ctx.beginPath();
+  values.forEach((v,i)=>{const x=pad+i*step, y=h-pad-(v/vmax)*(h-pad*2); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke();
+  // x labels (간격)
+  ctx.fillStyle="#111827"; ctx.font="12px sans-serif"; ctx.textAlign="center";
+  const k=Math.ceil(labels.length/8); labels.forEach((lb,i)=>{if(i%k)return; const x=pad+i*step; ctx.fillText(lb,x,h-pad+14);});
+}
+function barChart(id, labels, values, onClick){
+  const c=document.getElementById(id); const ctx=c.getContext('2d');
+  const w=c.width=c.clientWidth, h=c.height=c.clientHeight, pad=40;
+  const vmax=drawAxes(ctx,w,h,pad,values,false);
+  const n=values.length, gap=8, bw=Math.max(6,((w-pad*2)-gap*(n-1))/Math.max(1,n));
+  const rects=[]; ctx.fillStyle="#fb923c";
+  for(let i=0;i<n;i++){
+    const x=pad+i*(bw+gap), y=h-pad-(values[i]/vmax)*(h-pad*2), hh=(h-pad)-y;
+    ctx.fillRect(x,y,bw,hh); rects.push({x,y,w:bw,h:hh,i});
+  }
+  // x labels
+  ctx.fillStyle="#111827"; ctx.font="12px sans-serif"; ctx.textAlign="left";
+  const k=Math.ceil(labels.length/10); labels.forEach((lb,i)=>{if(i%k)return; const x=pad+i*(bw+gap); ctx.fillText(lb,x,h-pad+14);});
+  // click
+  c.style.cursor = onClick ? 'pointer' : 'default';
+  c.onclick = e=>{
+    if(!onClick) return;
+    const r=c.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+    const hit=rects.find(R=> mx>=R.x && mx<=R.x+R.w && my>=R.y && my<=R.y+R.h);
+    if(hit) onClick(hit.i);
+  };
+}
+
+/* ====== 데이터 파싱 ====== */
+function parseRecords(matrix){
+  const h=matrix[0]||[];
+  const iM=h.findIndex(x=>String(x).includes('월'));
+  const iD=h.findIndex(x=>String(x).includes('일'));
+  const iP=h.findIndex(x=>String(x).includes('생산'));
+  const iG=h.findIndex(x=>String(x).includes('양품'));
+  const iL=h.findIndex(x=>/불량|로스/.test(String(x)));
+  const rec=[];
+  for(let r=1;r<matrix.length;r++){
+    const row=matrix[r]; const m=N(row[iM]); const d=N(row[iD]);
+    const prod=N(row[iP]); const good=N(row[iG]); const loss = isNaN(N(row[iL]))? Math.max(0,prod-good): N(row[iL]);
+    if(!m || !prod) continue;
+    rec.push({m, d, prod, good, loss, rate: prod? (loss/prod*100):0});
+  }
+  return rec;
+}
+function sumMonthly(recs){
+  const map={}; recs.forEach(o=>{map[o.m]??={prod:0,good:0,loss:0}; map[o.m].prod+=o.prod; map[o.m].good+=o.good; map[o.m].loss+=o.loss;});
+  return Object.keys(map).map(Number).sort((a,b)=>a-b).map(m=>({m, ...map[m], rate: map[m].prod? map[m].loss/map[m].prod*100:0}));
+}
+function splitDailyByMonth(recs){
+  const mp={}; recs.forEach(o=>{(mp[o.m]??=[]).push(o)}); Object.values(mp).forEach(a=>a.sort((a,b)=>a.d-b.d)); return mp;
+}
+
+/* ====== 회귀(11·12월 예측) ====== */
+function forecastTotalYear(monthRows){ // monthRows: [{m,prod}]
+  const pts = monthRows.filter(x=>x.m>=1 && x.m<=10); if(!pts.length) return 0;
+  const xs=pts.map(p=>p.m), ys=pts.map(p=>p.prod);
+  const n=xs.length, sx=xs.reduce((a,c)=>a+c,0), sy=ys.reduce((a,c)=>a+c,0);
+  const sxx=xs.reduce((a,c)=>a+c*c,0), sxy=xs.reduce((a,c,i)=>a+c*ys[i],0);
+  const b = (n*sxy - sx*sy) / Math.max(1,(n*sxx - sx*sx)); // 기울기
+  const a = sy/n - b*sx/n;                                   // 절편
+  const pred11=Math.max(0, a + b*11);
+  const pred12=Math.max(0, a + b*12);
+  const sum1to10 = ys.reduce((a,c)=>a+c,0);
+  return Math.round(sum1to10 + pred11 + pred12);
+}
+
+/* ====== 렌더 ====== */
+function render(){
+  const et = parseRecords(csvToMatrix(document.getElementById('csv-et').textContent));
+  const ipa= parseRecords(csvToMatrix(document.getElementById('csv-ipa').textContent));
+  const all=[...et,...ipa];
+
+  // 월 합계(전체)
+  const mAll = sumMonthly(all);
+  document.getElementById('monthly-all').innerHTML = mAll.map(r=>`<tr><td>${r.m}</td><td>${Math.round(r.prod).toLocaleString()}</td></tr>`).join('');
+  lineChart('goal-month-chart', mAll.map(r=>r.m), mAll.map(r=>r.prod));
+
+  // (1) 연말 누적 예측
+  const yPred = forecastTotalYear(mAll);
+  document.getElementById('goal-big').textContent = yPred.toLocaleString();
+  document.getElementById('badge-goal').textContent = yPred.toLocaleString();
+
+  // (2) 1~10월 양품 합(누적 생산량 버튼)
+  const good1to10 = mAll.filter(r=>r.m<=10).reduce((a,c)=>a+c.good,0);
+  document.getElementById('badge-current').textContent = Math.round(good1to10).toLocaleString();
+
+  // (3) 평균 불량률(가중)
+  const totalProd = all.reduce((a,c)=>a+c.prod,0);
+  const totalLoss = all.reduce((a,c)=>a+c.loss,0);
+  const avgDefect = totalProd? (totalLoss/totalProd*100):0;
+  const defTxt = `${avgDefect.toFixed(2)}%`;
+  document.getElementById('badge-defect').textContent = defTxt;
+  document.getElementById('defect-big').textContent = defTxt;
+
+  // (4) 제품별 월 요약 → 막대 클릭 시 일별 드릴다운
+  const mET  = sumMonthly(et);
+  const mIPA = sumMonthly(ipa);
+  const dET  = splitDailyByMonth(et);
+  const dIPA = splitDailyByMonth(ipa);
+
+  const rowHtml = r=>`<tr data-m="${r.m}"><td>${r.m}</td><td>${Math.round(r.prod).toLocaleString()}</td><td>${Math.round(r.good).toLocaleString()}</td><td>${Math.round(r.loss).toLocaleString()}</td><td>${r.rate.toFixed(2)}%</td></tr>`;
+  document.getElementById('et-month-body').innerHTML  = mET.map(rowHtml).join('');
+  document.getElementById('ipa-month-body').innerHTML = mIPA.map(rowHtml).join('');
+
+  // 차트
+  barChart('et-month-chart',  mET.map(r=>r.m),  mET.map(r=>r.prod), (idx)=>openDaily('et', mET[idx]?.m, dET));
+  barChart('ipa-month-chart', mIPA.map(r=>r.m), mIPA.map(r=>r.prod), (idx)=>openDaily('ipa', mIPA[idx]?.m, dIPA));
+
+  // 불량률 섹션 월표/차트(전체)
+  document.getElementById('defect-month-body').innerHTML = mAll.map(r=>`<tr><td>${r.m}</td><td>${Math.round(r.prod).toLocaleString()}</td><td>${Math.round(r.loss).toLocaleString()}</td><td>${r.rate.toFixed(2)}%</td></tr>`).join('');
+  lineChart('defect-month-chart', mAll.map(r=>r.m), mAll.map(r=>r.rate), {isPct:true});
+
+  // 표 클릭으로도 드릴다운
+  document.querySelectorAll('#et-month-body tr').forEach(tr=>tr.onclick=()=>openDaily('et', Number(tr.dataset.m), dET));
+  document.querySelectorAll('#ipa-month-body tr').forEach(tr=>tr.onclick=()=>openDaily('ipa', Number(tr.dataset.m), dIPA));
+}
+
+function openDaily(kind, m, dMap){
+  const rows = (dMap[m]||[]);
+  const tgt = kind==='et' ? {t:'et-d-title', w:'et-d-wrap', b:'et-d-body', c:'et-d-chart'}
+                          : {t:'ipa-d-title',w:'ipa-d-wrap',b:'ipa-d-body',c:'ipa-d-chart'};
+  document.getElementById(tgt.t).style.display='block';
+  document.getElementById(tgt.w).style.display='block';
+  document.getElementById(tgt.c).style.display='block';
+  document.getElementById(tgt.t).textContent = `${m}월 일별 상세`;
+
+  document.getElementById(tgt.b).innerHTML = rows.map(o=>`
+    <tr>
+      <td>${m}월 ${o.d}일</td>
+      <td>${Math.round(o.prod).toLocaleString()}</td>
+      <td>${Math.round(o.good).toLocaleString()}</td>
+      <td>${Math.round(o.loss).toLocaleString()}</td>
+      <td>${o.rate.toFixed(2)}%</td>
+    </tr>`).join('');
+
+  barChart(tgt.c, rows.map(r=>r.d), rows.map(r=>r.prod)); // 일별 생산 (Y축 눈금 포함)
+}
+
+render();
+</script>
+</body>
+</html>
